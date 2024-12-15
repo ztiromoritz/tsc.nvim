@@ -24,7 +24,7 @@ end
 --- @field spinner? string[] - ({"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}) - The spinner characters to use
 --- @field pretty_errors? boolean - (true) When true errors will be formatted with `pretty`
 --- @field flags? { [string]: boolean }
-
+---
 local DEFAULT_CONFIG = {
   auto_open_qflist = true,
   auto_close_qflist = false,
@@ -79,7 +79,7 @@ local function format_notification_msg(msg, spinner_idx)
   return string.format(" %s %s ", config.spinner[spinner_idx], msg)
 end
 
-M.run = function()
+M.run = function(args)
   -- Closed over state
   local tsc = config.bin_path
   local errors = {}
@@ -96,7 +96,6 @@ M.run = function()
       vim.log.levels.ERROR,
       get_notify_options()
     )
-
     return
   end
 
@@ -134,7 +133,9 @@ M.run = function()
         (
           config.flags.watch and "👀 Watching your project for changes"
           or "Type-checking your project" .. (running_count > 0 and "s" or "")
-        ) .. ", kick back and relax 🚀",
+        )
+          .. ", kick back and relax 🚀"
+          .. (#args > 0 and (" Command: " .. vim.inspect(args)) or ""),
         spinner_idx
       ),
       nil,
@@ -290,6 +291,9 @@ M.run = function()
       project_opts.on_stdout = function(_, output)
         watch_on_stdout(output, project)
       end
+      project_opts.on_stderr = function(_, output)
+        print(output)
+      end
     end
 
     local flags = ""
@@ -298,11 +302,19 @@ M.run = function()
     else
       flags = utils.parse_flags(vim.tbl_extend("force", config.flags, { project = project }))
     end
+
     vim.schedule(function()
-      running_processes[project] = {
-        pid = vim.fn.jobstart(tsc .. " " .. flags, project_opts),
-        errors = {},
-      }
+      if #args > 0 then
+        running_processes[project] = {
+          pid = vim.fn.jobstart(args, project_opts),
+          errors = {},
+        }
+      else
+        running_processes[project] = {
+          pid = vim.fn.jobstart(tsc .. " " .. flags, project_opts),
+          errors = {},
+        }
+      end
     end)
   end
 end
@@ -322,9 +334,9 @@ end
 function M.setup(opts)
   config = vim.tbl_deep_extend("force", config, DEFAULT_CONFIG, opts or {})
 
-  vim.api.nvim_create_user_command("TSC", function()
-    M.run()
-  end, { desc = "Run `tsc` asynchronously and load the results into a qflist", force = true })
+  vim.api.nvim_create_user_command("TSC", function(opts)
+    M.run(opts.args)
+  end, { desc = "Run `tsc` asynchronously and load the results into a qflist", force = true, nargs = "?" })
 
   vim.api.nvim_create_user_command("TSCStop", function()
     M.stop()
